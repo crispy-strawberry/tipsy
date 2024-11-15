@@ -2,6 +2,14 @@
   <img alt="Typst" src="https://user-images.githubusercontent.com/17899797/226108480-722b770e-6313-40d7-84f2-26bebb55a281.png">
 </h1>
 
+<p>
+  A fork of typst focused on local first editing experience.
+  Here are the things I want to work on -
+  
+  - [ ] Replacing wasmi for wasmtime
+  - [ ] Add ability to embed pdf documents
+</p>
+
 <p align="center">
   <a href="https://typst.app/docs/">
     <img alt="Documentation" src="https://img.shields.io/website?down_message=offline&label=docs&up_color=007aff&up_message=online&url=https%3A%2F%2Ftypst.app%2Fdocs"
