@@ -6,7 +6,7 @@
   A fork of typst focused on local first editing experience.
   Here are the things I want to work on -
   
-  - [ ] Replacing wasmi for wasmtime
+  - [x] Replacing wasmi for wasmtime
   - [ ] Add ability to embed pdf documents
 </p>
 

@@ -4,12 +4,13 @@ use std::sync::{Arc, Mutex};
 
 use ecow::{eco_format, EcoString};
 use typst_syntax::Spanned;
-use wasmi::{AsContext, AsContextMut};
 
 use crate::diag::{bail, At, SourceResult, StrResult};
 use crate::engine::Engine;
 use crate::foundations::{func, repr, scope, ty, Bytes};
 use crate::World;
+
+use wasmtime::{self, AsContext, AsContextMut};
 
 /// A WebAssembly plugin.
 ///
@@ -124,13 +125,13 @@ struct Repr {
     /// The raw WebAssembly bytes.
     bytes: Bytes,
     /// The function defined by the WebAssembly module.
-    functions: Vec<(EcoString, wasmi::Func)>,
+    functions: Vec<(EcoString, wasmtime::Func)>,
     /// Owns all data associated with the WebAssembly module.
     store: Mutex<Store>,
 }
 
 /// Owns all data associated with the WebAssembly module.
-type Store = wasmi::Store<StoreData>;
+type Store = wasmtime::Store<StoreData>;
 
 /// If there was an error reading/writing memory, keep the offset + length to
 /// display an error message.
@@ -171,11 +172,11 @@ impl Plugin {
     #[comemo::memoize]
     #[typst_macros::time(name = "load plugin")]
     pub fn new(bytes: Bytes) -> StrResult<Plugin> {
-        let engine = wasmi::Engine::default();
-        let module = wasmi::Module::new(&engine, bytes.as_slice())
+        let engine = wasmtime::Engine::default();
+        let module = wasmtime::Module::new(&engine, bytes.as_slice())
             .map_err(|err| format!("failed to load WebAssembly module ({err})"))?;
 
-        let mut linker = wasmi::Linker::new(&engine);
+        let mut linker = wasmtime::Linker::new(&engine);
         linker
             .func_wrap(
                 "typst_env",
@@ -194,20 +195,19 @@ impl Plugin {
         let mut store = Store::new(&engine, StoreData::default());
         let instance = linker
             .instantiate(&mut store, &module)
-            .and_then(|pre_instance| pre_instance.start(&mut store))
             .map_err(|e| eco_format!("{e}"))?;
 
         // Ensure that the plugin exports its memory.
         if !matches!(
-            instance.get_export(&store, "memory"),
-            Some(wasmi::Extern::Memory(_))
+            instance.get_export(&mut store, "memory"),
+            Some(wasmtime::Extern::Memory(_))
         ) {
             bail!("plugin does not export its memory");
         }
 
         // Collect exported functions.
         let functions = instance
-            .exports(&store)
+            .exports(&mut store)
             .filter_map(|export| {
                 let name = export.name().into();
                 export.into_func().map(|func| (name, func))
@@ -236,12 +236,12 @@ impl Plugin {
         let ty = func.ty(store.as_context());
 
         // Check function signature.
-        if ty.params().iter().any(|&v| v != wasmi::core::ValType::I32) {
+        if ty.params().any(|v| !v.is_i32()) {
             bail!(
                 "plugin function `{name}` has a parameter that is not a 32-bit integer"
             );
         }
-        if ty.results() != [wasmi::core::ValType::I32] {
+        if ty.results().len() != 1 {
             bail!("plugin function `{name}` does not return exactly one 32-bit integer");
         }
 
@@ -259,14 +259,14 @@ impl Plugin {
         // Collect the lengths of the argument buffers.
         let lengths = args
             .iter()
-            .map(|a| wasmi::Val::I32(a.len() as i32))
+            .map(|a| wasmtime::Val::I32(a.len() as i32))
             .collect::<Vec<_>>();
 
         // Store the input data.
         store.data_mut().args = args;
 
         // Call the function.
-        let mut code = wasmi::Val::I32(-1);
+        let mut code = wasmtime::Val::I32(-1);
         func.call(store.as_context_mut(), &lengths, std::slice::from_mut(&mut code))
             .map_err(|err| eco_format!("plugin panicked: {err}"))?;
         if let Some(MemoryError { offset, length, write }) =
@@ -283,8 +283,8 @@ impl Plugin {
 
         // Parse the functions return value.
         match code {
-            wasmi::Val::I32(0) => {}
-            wasmi::Val::I32(1) => match std::str::from_utf8(&output) {
+            wasmtime::Val::I32(0) => {}
+            wasmtime::Val::I32(1) => match std::str::from_utf8(&output) {
                 Ok(message) => bail!("plugin errored with: {message}"),
                 Err(_) => {
                     bail!("plugin errored, but did not return a valid error message")
@@ -328,7 +328,7 @@ impl Hash for Plugin {
 
 /// Write the arguments to the plugin function into the plugin's memory.
 fn wasm_minimal_protocol_write_args_to_buffer(
-    mut caller: wasmi::Caller<StoreData>,
+    mut caller: wasmtime::Caller<StoreData>,
     ptr: u32,
 ) {
     let memory = caller.get_export("memory").unwrap().into_memory().unwrap();
@@ -349,7 +349,7 @@ fn wasm_minimal_protocol_write_args_to_buffer(
 
 /// Extracts the output of the plugin function from the plugin's memory.
 fn wasm_minimal_protocol_send_result_to_host(
-    mut caller: wasmi::Caller<StoreData>,
+    mut caller: wasmtime::Caller<StoreData>,
     ptr: u32,
     len: u32,
 ) {

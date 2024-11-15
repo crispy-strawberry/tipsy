@@ -61,7 +61,7 @@ unicode-math-class = { workspace = true }
 unicode-segmentation = { workspace = true }
 unscanny = { workspace = true }
 usvg = { workspace = true }
-wasmi = { workspace = true }
+wasmtime = { workspace = true }
 xmlwriter = { workspace = true }
 
 [dev-dependencies]
